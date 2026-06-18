@@ -24,11 +24,23 @@ type Record struct {
 	AuthID       string
 	AuthIndex    string
 	AuthType     string
+	// AuthChannel stores the logical routing channel selected for this request.
+	AuthChannel string
+	// AuthKind stores the candidate kind selected for this request.
+	AuthKind string
+	// AuthPriority stores the effective routing priority of the selected auth.
+	AuthPriority int
 	Source       string
 	// ReasoningEffort stores the translated upstream thinking level for request event logs.
 	ReasoningEffort string
 	// ServiceTier stores the client-requested service tier for request event logs.
 	ServiceTier string
+	// AttemptIndex stores the 1-based auth attempt index for this request.
+	AttemptIndex int
+	// FailoverCount stores the number of auth failovers that occurred during this request.
+	FailoverCount int
+	// ExecutionSessionID stores a long-lived downstream session identifier when available.
+	ExecutionSessionID string
 	RequestedAt time.Time
 	Latency     time.Duration
 	TTFT        time.Duration
@@ -59,6 +71,12 @@ type Detail struct {
 type requestedModelAliasContextKey struct{}
 type reasoningEffortContextKey struct{}
 type serviceTierContextKey struct{}
+type authPriorityContextKey struct{}
+type authChannelContextKey struct{}
+type authKindContextKey struct{}
+type authAttemptContextKey struct{}
+type authFailoverCountContextKey struct{}
+type executionSessionIDContextKey struct{}
 
 // WithRequestedModelAlias stores the client-requested model name for usage sinks.
 func WithRequestedModelAlias(ctx context.Context, alias string) context.Context {
@@ -149,6 +167,150 @@ func ServiceTierFromContext(ctx context.Context) string {
 		return tier
 	default:
 		return DefaultServiceTier
+	}
+}
+
+func WithAuthPriority(ctx context.Context, priority int) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, authPriorityContextKey{}, priority)
+}
+
+func AuthPriorityFromContext(ctx context.Context) int {
+	if ctx == nil {
+		return 0
+	}
+	switch value := ctx.Value(authPriorityContextKey{}).(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return 0
+	}
+}
+
+func WithAuthChannel(ctx context.Context, channel string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	channel = strings.TrimSpace(channel)
+	if channel == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, authChannelContextKey{}, channel)
+}
+
+func AuthChannelFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	switch value := ctx.Value(authChannelContextKey{}).(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case []byte:
+		return strings.TrimSpace(string(value))
+	default:
+		return ""
+	}
+}
+
+func WithAuthKind(ctx context.Context, kind string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, authKindContextKey{}, kind)
+}
+
+func AuthKindFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	switch value := ctx.Value(authKindContextKey{}).(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case []byte:
+		return strings.TrimSpace(string(value))
+	default:
+		return ""
+	}
+}
+
+func WithAuthAttemptIndex(ctx context.Context, attempt int) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, authAttemptContextKey{}, attempt)
+}
+
+func AuthAttemptIndexFromContext(ctx context.Context) int {
+	if ctx == nil {
+		return 0
+	}
+	switch value := ctx.Value(authAttemptContextKey{}).(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return 0
+	}
+}
+
+func WithAuthFailoverCount(ctx context.Context, count int) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, authFailoverCountContextKey{}, count)
+}
+
+func AuthFailoverCountFromContext(ctx context.Context) int {
+	if ctx == nil {
+		return 0
+	}
+	switch value := ctx.Value(authFailoverCountContextKey{}).(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return 0
+	}
+}
+
+func WithExecutionSessionID(ctx context.Context, id string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, executionSessionIDContextKey{}, id)
+}
+
+func ExecutionSessionIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	switch value := ctx.Value(executionSessionIDContextKey{}).(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case []byte:
+		return strings.TrimSpace(string(value))
+	default:
+		return ""
 	}
 }
 

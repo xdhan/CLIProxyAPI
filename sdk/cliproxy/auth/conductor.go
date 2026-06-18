@@ -1786,7 +1786,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
-		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
+		publishSelectedAuthMetadata(opts.Metadata, auth, len(attempted)+1, len(attempted))
 
 		tried[auth.ID] = struct{}{}
 		execCtx := ctx
@@ -1887,7 +1887,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
-		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
+		publishSelectedAuthMetadata(opts.Metadata, auth, len(attempted)+1, len(attempted))
 
 		tried[auth.ID] = struct{}{}
 		execCtx := ctx
@@ -1988,7 +1988,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
-		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
+		publishSelectedAuthMetadata(opts.Metadata, auth, len(attempted)+1, len(attempted))
 
 		tried[auth.ID] = struct{}{}
 		execCtx := ctx
@@ -2183,6 +2183,26 @@ func contextWithRequestedModelAlias(ctx context.Context, opts cliproxyexecutor.O
 	if serviceTier != "" {
 		ctx = coreusage.WithServiceTier(ctx, serviceTier)
 	}
+	if len(opts.Metadata) > 0 {
+		if priority, ok := selectedAuthPriorityFromMetadata(opts.Metadata); ok {
+			ctx = coreusage.WithAuthPriority(ctx, priority)
+		}
+		if channel := selectedAuthChannelFromMetadata(opts.Metadata); channel != "" {
+			ctx = coreusage.WithAuthChannel(ctx, channel)
+		}
+		if kind := selectedAuthKindFromMetadata(opts.Metadata); kind != "" {
+			ctx = coreusage.WithAuthKind(ctx, kind)
+		}
+		if attempt, ok := selectedAuthAttemptFromMetadata(opts.Metadata); ok {
+			ctx = coreusage.WithAuthAttemptIndex(ctx, attempt)
+		}
+		if failovers, ok := selectedAuthFailoverCountFromMetadata(opts.Metadata); ok {
+			ctx = coreusage.WithAuthFailoverCount(ctx, failovers)
+		}
+		if sessionID := executionSessionIDFromMetadata(opts.Metadata); sessionID != "" {
+			ctx = coreusage.WithExecutionSessionID(ctx, sessionID)
+		}
+	}
 	return ctx
 }
 
@@ -2297,17 +2317,131 @@ func isFreeCodexAuth(auth *Auth) bool {
 	return strings.EqualFold(strings.TrimSpace(auth.Attributes["plan_type"]), "free")
 }
 
-func publishSelectedAuthMetadata(meta map[string]any, authID string) {
+func publishSelectedAuthMetadata(meta map[string]any, auth *Auth, attemptIndex int, failoverCount int) {
 	if len(meta) == 0 {
 		return
 	}
+	if auth == nil {
+		return
+	}
+	authID := strings.TrimSpace(auth.ID)
 	authID = strings.TrimSpace(authID)
 	if authID == "" {
 		return
 	}
 	meta[cliproxyexecutor.SelectedAuthMetadataKey] = authID
+	meta[cliproxyexecutor.SelectedAuthPriorityMetadataKey] = authPriority(auth)
+	meta[cliproxyexecutor.SelectedAuthChannelMetadataKey] = usageAuthChannel(auth)
+	meta[cliproxyexecutor.SelectedAuthKindMetadataKey] = usageAuthKind(auth)
+	if attemptIndex > 0 {
+		meta[cliproxyexecutor.SelectedAuthAttemptMetadataKey] = attemptIndex
+	}
+	if failoverCount > 0 {
+		meta[cliproxyexecutor.SelectedAuthFailoverCountMetadataKey] = failoverCount
+	} else {
+		meta[cliproxyexecutor.SelectedAuthFailoverCountMetadataKey] = 0
+	}
 	if callback, ok := meta[cliproxyexecutor.SelectedAuthCallbackMetadataKey].(func(string)); ok && callback != nil {
 		callback(authID)
+	}
+}
+
+func usageAuthChannel(auth *Auth) string {
+	if auth == nil {
+		return ""
+	}
+	if compatName := strings.TrimSpace(auth.Attributes["compat_name"]); compatName != "" {
+		return compatName
+	}
+	if providerKey := strings.TrimSpace(auth.Attributes["provider_key"]); providerKey != "" {
+		return providerKey
+	}
+	return strings.TrimSpace(auth.Provider)
+}
+
+func usageAuthKind(auth *Auth) string {
+	if auth == nil {
+		return ""
+	}
+	if strings.EqualFold(strings.TrimSpace(auth.Provider), "openai-compatibility") || strings.TrimSpace(auth.Attributes["compat_name"]) != "" {
+		return "compat_provider"
+	}
+	kind, _ := auth.AccountInfo()
+	kind = strings.TrimSpace(kind)
+	if kind == "api_key" {
+		return "api_key"
+	}
+	if kind == "oauth" {
+		return "oauth_auth"
+	}
+	return kind
+}
+
+func selectedAuthPriorityFromMetadata(meta map[string]any) (int, bool) {
+	return intMetadataValue(meta, cliproxyexecutor.SelectedAuthPriorityMetadataKey)
+}
+
+func selectedAuthAttemptFromMetadata(meta map[string]any) (int, bool) {
+	return intMetadataValue(meta, cliproxyexecutor.SelectedAuthAttemptMetadataKey)
+}
+
+func selectedAuthFailoverCountFromMetadata(meta map[string]any) (int, bool) {
+	return intMetadataValue(meta, cliproxyexecutor.SelectedAuthFailoverCountMetadataKey)
+}
+
+func selectedAuthChannelFromMetadata(meta map[string]any) string {
+	return stringMetadataValue(meta, cliproxyexecutor.SelectedAuthChannelMetadataKey)
+}
+
+func selectedAuthKindFromMetadata(meta map[string]any) string {
+	return stringMetadataValue(meta, cliproxyexecutor.SelectedAuthKindMetadataKey)
+}
+
+func executionSessionIDFromMetadata(meta map[string]any) string {
+	return stringMetadataValue(meta, cliproxyexecutor.ExecutionSessionMetadataKey)
+}
+
+func stringMetadataValue(meta map[string]any, key string) string {
+	if len(meta) == 0 {
+		return ""
+	}
+	raw, ok := meta[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	switch value := raw.(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case []byte:
+		return strings.TrimSpace(string(value))
+	default:
+		return ""
+	}
+}
+
+func intMetadataValue(meta map[string]any, key string) (int, bool) {
+	if len(meta) == 0 {
+		return 0, false
+	}
+	raw, ok := meta[key]
+	if !ok || raw == nil {
+		return 0, false
+	}
+	switch value := raw.(type) {
+	case int:
+		return value, true
+	case int64:
+		return int(value), true
+	case float64:
+		return int(value), true
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(value))
+		return parsed, err == nil
+	case []byte:
+		parsed, err := strconv.Atoi(strings.TrimSpace(string(value)))
+		return parsed, err == nil
+	default:
+		return 0, false
 	}
 }
 
@@ -4405,7 +4539,7 @@ func (m *Manager) tryAntigravityCreditsExecute(ctx context.Context, req cliproxy
 			continue
 		}
 		c.auth = preparedAuth
-		publishSelectedAuthMetadata(creditsOpts.Metadata, c.auth.ID)
+		publishSelectedAuthMetadata(creditsOpts.Metadata, c.auth, 1, 0)
 		models := m.executionModelCandidates(c.auth, routeModel)
 		if len(models) == 0 {
 			continue
@@ -4455,7 +4589,7 @@ func (m *Manager) tryAntigravityCreditsExecuteStream(ctx context.Context, req cl
 			continue
 		}
 		c.auth = preparedAuth
-		publishSelectedAuthMetadata(creditsOpts.Metadata, c.auth.ID)
+		publishSelectedAuthMetadata(creditsOpts.Metadata, c.auth, 1, 0)
 		models := m.executionModelCandidates(c.auth, routeModel)
 		if len(models) == 0 {
 			continue

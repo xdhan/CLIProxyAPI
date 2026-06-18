@@ -103,10 +103,16 @@ func (p *usageQueuePlugin) HandleUsage(ctx context.Context, record coreusage.Rec
 		Alias:           aliasName,
 		Endpoint:        resolveEndpoint(ctx),
 		AuthType:        authType,
+		AuthChannel:     strings.TrimSpace(record.AuthChannel),
+		AuthKind:        strings.TrimSpace(record.AuthKind),
+		AuthPriority:    record.AuthPriority,
 		APIKey:          apiKey,
 		RequestID:       requestID,
 		ReasoningEffort: reasoningEffort,
 		ServiceTier:     serviceTier,
+		AttemptIndex:    record.AttemptIndex,
+		FailoverCount:   record.FailoverCount,
+		ExecutionSessionID: strings.TrimSpace(record.ExecutionSessionID),
 	})
 	if err != nil {
 		return
@@ -122,10 +128,16 @@ type queuedUsageDetail struct {
 	Alias           string `json:"alias"`
 	Endpoint        string `json:"endpoint"`
 	AuthType        string `json:"auth_type"`
+	AuthChannel     string `json:"auth_channel,omitempty"`
+	AuthKind        string `json:"auth_kind,omitempty"`
+	AuthPriority    int    `json:"auth_priority,omitempty"`
 	APIKey          string `json:"api_key"`
 	RequestID       string `json:"request_id"`
 	ReasoningEffort string `json:"reasoning_effort"`
 	ServiceTier     string `json:"service_tier"`
+	AttemptIndex    int    `json:"attempt_index,omitempty"`
+	FailoverCount   int    `json:"failover_count,omitempty"`
+	ExecutionSessionID string `json:"execution_session_id,omitempty"`
 }
 
 type requestDetail struct {

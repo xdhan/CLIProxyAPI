@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,10 +30,16 @@ type UsageReporter struct {
 	authID       string
 	authIndex    string
 	authType     string
+	authChannel  string
+	authKind     string
+	authPriority int
 	apiKey       string
 	source       string
 	reasoning    string
 	serviceTier  string
+	attemptIndex int
+	failoverCount int
+	executionSessionID string
 	requestedAt  time.Time
 	ttftMu       sync.RWMutex
 	ttft         time.Duration
@@ -62,19 +69,34 @@ func NewUsageReporter(ctx context.Context, provider, model string, auth *cliprox
 		alias = model
 	}
 	reporter := &UsageReporter{
-		provider:    provider,
-		model:       model,
-		alias:       strings.TrimSpace(alias),
-		requestedAt: time.Now(),
-		apiKey:      apiKey,
-		source:      resolveUsageSource(auth, apiKey),
-		authType:    resolveUsageAuthType(auth),
-		reasoning:   usage.ReasoningEffortFromContext(ctx),
-		serviceTier: usage.ServiceTierFromContext(ctx),
+		provider:           provider,
+		model:              model,
+		alias:              strings.TrimSpace(alias),
+		requestedAt:        time.Now(),
+		apiKey:             apiKey,
+		source:             resolveUsageSource(auth, apiKey),
+		authType:           resolveUsageAuthType(auth),
+		authChannel:        resolveUsageAuthChannel(auth),
+		authKind:           resolveUsageAuthKind(auth),
+		authPriority:       resolveUsageAuthPriority(auth),
+		reasoning:          usage.ReasoningEffortFromContext(ctx),
+		serviceTier:        usage.ServiceTierFromContext(ctx),
+		attemptIndex:       usage.AuthAttemptIndexFromContext(ctx),
+		failoverCount:      usage.AuthFailoverCountFromContext(ctx),
+		executionSessionID: usage.ExecutionSessionIDFromContext(ctx),
 	}
 	if auth != nil {
 		reporter.authID = auth.ID
 		reporter.authIndex = auth.EnsureIndex()
+	}
+	if reporter.authChannel == "" {
+		reporter.authChannel = usage.AuthChannelFromContext(ctx)
+	}
+	if reporter.authKind == "" {
+		reporter.authKind = usage.AuthKindFromContext(ctx)
+	}
+	if reporter.authPriority == 0 {
+		reporter.authPriority = usage.AuthPriorityFromContext(ctx)
 	}
 	return reporter
 }
@@ -269,8 +291,14 @@ func (r *UsageReporter) buildRecordForModel(model string, detail usage.Detail, f
 		AuthID:          r.authID,
 		AuthIndex:       r.authIndex,
 		AuthType:        r.authType,
+		AuthChannel:     r.authChannel,
+		AuthKind:        r.authKind,
+		AuthPriority:    r.authPriority,
 		ReasoningEffort: r.reasoning,
 		ServiceTier:     r.serviceTier,
+		AttemptIndex:    r.attemptIndex,
+		FailoverCount:   r.failoverCount,
+		ExecutionSessionID: r.executionSessionID,
 		RequestedAt:     r.requestedAt,
 		Latency:         r.latency(),
 		TTFT:            r.ttftDuration(),
@@ -455,6 +483,63 @@ func resolveUsageAuthType(auth *cliproxyauth.Auth) string {
 		return "apikey"
 	}
 	return kind
+}
+
+func resolveUsageAuthKind(auth *cliproxyauth.Auth) string {
+	if auth == nil {
+		return ""
+	}
+	if strings.EqualFold(strings.TrimSpace(auth.Provider), "openai-compatibility") || strings.TrimSpace(auth.Attributes["compat_name"]) != "" {
+		return "compat_provider"
+	}
+	kind, _ := auth.AccountInfo()
+	kind = strings.TrimSpace(kind)
+	if kind == "api_key" {
+		return "api_key"
+	}
+	if kind == "oauth" {
+		return "oauth_auth"
+	}
+	return kind
+}
+
+func resolveUsageAuthChannel(auth *cliproxyauth.Auth) string {
+	if auth == nil {
+		return ""
+	}
+	if compatName := strings.TrimSpace(auth.Attributes["compat_name"]); compatName != "" {
+		return compatName
+	}
+	if providerKey := strings.TrimSpace(auth.Attributes["provider_key"]); providerKey != "" {
+		return providerKey
+	}
+	return strings.TrimSpace(auth.Provider)
+}
+
+func resolveUsageAuthPriority(auth *cliproxyauth.Auth) int {
+	if auth == nil {
+		return 0
+	}
+	if raw := strings.TrimSpace(auth.Attributes["priority"]); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil {
+			return parsed
+		}
+	}
+	if auth.Metadata != nil {
+		switch v := auth.Metadata["priority"].(type) {
+		case int:
+			return v
+		case int64:
+			return int(v)
+		case float64:
+			return int(v)
+		case string:
+			if parsed, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+				return parsed
+			}
+		}
+	}
+	return 0
 }
 
 func ParseCodexUsage(data []byte) (usage.Detail, bool) {

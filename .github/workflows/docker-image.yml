@@ -1,9 +1,7 @@
 name: docker-image
 
 on:
-  push:
-    tags:
-      - v*
+  workflow_dispatch:
 
 env:
   APP_NAME: CLIProxyAPI
@@ -145,4 +143,3 @@ jobs:
           delete_tag "latest-arm64"
           delete_tag "${VERSION}-amd64"
           delete_tag "${VERSION}-arm64"
-

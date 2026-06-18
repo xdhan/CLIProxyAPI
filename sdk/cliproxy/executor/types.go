@@ -29,6 +29,16 @@ const (
 	PinnedAuthMetadataKey = "pinned_auth_id"
 	// SelectedAuthMetadataKey stores the auth ID selected by the scheduler.
 	SelectedAuthMetadataKey = "selected_auth_id"
+	// SelectedAuthPriorityMetadataKey stores the selected auth routing priority.
+	SelectedAuthPriorityMetadataKey = "selected_auth_priority"
+	// SelectedAuthChannelMetadataKey stores the selected auth logical routing channel.
+	SelectedAuthChannelMetadataKey = "selected_auth_channel"
+	// SelectedAuthKindMetadataKey stores the selected auth candidate kind (oauth, api_key, compat_provider).
+	SelectedAuthKindMetadataKey = "selected_auth_kind"
+	// SelectedAuthAttemptMetadataKey stores the 1-based attempt index that selected the auth.
+	SelectedAuthAttemptMetadataKey = "selected_auth_attempt"
+	// SelectedAuthFailoverCountMetadataKey stores how many auth failovers happened before success/final failure.
+	SelectedAuthFailoverCountMetadataKey = "selected_auth_failover_count"
 	// SelectedAuthCallbackMetadataKey carries an optional callback invoked with the selected auth ID.
 	SelectedAuthCallbackMetadataKey = "selected_auth_callback"
 	// ExecutionSessionMetadataKey identifies a long-lived downstream execution session.

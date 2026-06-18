@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/usage"
 )
 
@@ -260,6 +261,65 @@ func TestUsageReporterBuildRecordIncludesServiceTier(t *testing.T) {
 	record := reporter.buildRecord(usage.Detail{TotalTokens: 3}, false)
 	if record.ServiceTier != "priority" {
 		t.Fatalf("service tier = %q, want %q", record.ServiceTier, "priority")
+	}
+}
+
+func TestUsageReporterBuildRecordIncludesRoutingMetadata(t *testing.T) {
+	ctx := usage.WithAuthPriority(context.Background(), 9)
+	ctx = usage.WithAuthChannel(ctx, "openrouter")
+	ctx = usage.WithAuthKind(ctx, "compat_provider")
+	ctx = usage.WithAuthAttemptIndex(ctx, 2)
+	ctx = usage.WithAuthFailoverCount(ctx, 1)
+	ctx = usage.WithExecutionSessionID(ctx, "session-123")
+
+	reporter := NewUsageReporter(ctx, "openai-compatibility", "gpt-5.4", nil)
+	record := reporter.buildRecord(usage.Detail{TotalTokens: 3}, false)
+
+	if record.AuthPriority != 9 {
+		t.Fatalf("auth priority = %d, want %d", record.AuthPriority, 9)
+	}
+	if record.AuthChannel != "openrouter" {
+		t.Fatalf("auth channel = %q, want %q", record.AuthChannel, "openrouter")
+	}
+	if record.AuthKind != "compat_provider" {
+		t.Fatalf("auth kind = %q, want %q", record.AuthKind, "compat_provider")
+	}
+	if record.AttemptIndex != 2 {
+		t.Fatalf("attempt index = %d, want %d", record.AttemptIndex, 2)
+	}
+	if record.FailoverCount != 1 {
+		t.Fatalf("failover count = %d, want %d", record.FailoverCount, 1)
+	}
+	if record.ExecutionSessionID != "session-123" {
+		t.Fatalf("execution session id = %q, want %q", record.ExecutionSessionID, "session-123")
+	}
+}
+
+func TestResolveUsageAuthPriorityReadsAttribute(t *testing.T) {
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{"priority": "7"}}
+	if got := resolveUsageAuthPriority(auth); got != 7 {
+		t.Fatalf("resolveUsageAuthPriority() = %d, want 7", got)
+	}
+}
+
+func TestResolveUsageAuthPriorityReadsMetadata(t *testing.T) {
+	auth := &cliproxyauth.Auth{Metadata: map[string]any{"priority": float64(11)}}
+	if got := resolveUsageAuthPriority(auth); got != 11 {
+		t.Fatalf("resolveUsageAuthPriority() = %d, want 11", got)
+	}
+}
+
+func TestResolveUsageAuthChannelPrefersCompatName(t *testing.T) {
+	auth := &cliproxyauth.Auth{Provider: "openai-compatibility", Attributes: map[string]string{"compat_name": "openrouter", "provider_key": "fallback"}}
+	if got := resolveUsageAuthChannel(auth); got != "openrouter" {
+		t.Fatalf("resolveUsageAuthChannel() = %q, want %q", got, "openrouter")
+	}
+}
+
+func TestResolveUsageAuthKindForCompatProvider(t *testing.T) {
+	auth := &cliproxyauth.Auth{Provider: "openai-compatibility", Attributes: map[string]string{"compat_name": "openrouter"}}
+	if got := resolveUsageAuthKind(auth); got != "compat_provider" {
+		t.Fatalf("resolveUsageAuthKind() = %q, want %q", got, "compat_provider")
 	}
 }
 
